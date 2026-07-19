@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antigravity-claude-bridge"
+version = "1.0.0"
+description = "Claude Code to Antigravity IDE Bidirectional MCP Server"
+readme = "README.md"
+authors = [
+    { name = "Bridge Contributors" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.scripts]
+bridge-mcp-server = "bridge.server:main"
+
+[tool.setuptools]
+packages = ["bridge"]

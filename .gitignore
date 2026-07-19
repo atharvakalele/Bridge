@@ -1,0 +1,21 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python Cache Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local Config Overrides
+.env
+config.json
+
+# Build and Distribution Packages
+build/
+dist/
+*.egg-info/
+.eggs/

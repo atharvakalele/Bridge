@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "bridge": {
+      "command": "bridge-mcp-server"
+    }
+  }
+}

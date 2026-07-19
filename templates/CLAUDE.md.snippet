@@ -1,0 +1,12 @@
+# Claude Code × Antigravity IDE — Autonomous Bidirectional Loop
+
+## Standing Protocol
+- **A delegate timeout is NOT failure**: Antigravity is blocked waiting on Gemini execution. If a tool call times out (5 minutes), do local work and let the `/tmp/bridge_responses/` Monitor notify you when the response arrives.
+- **Specific Delegations**: Be specific with paths and expectations. Every delegation must instruct Gemini to write the full result via the reply script.
+
+## Wake loop Relaunch
+Ensure Gemini launches the tracked waiter loop at session start and after completing every delegated task:
+```python
+run_command(CommandLine="bash ~/.config/bridge/gemini_side/waiter.sh", WaitMsBeforeAsync=500)
+```
+Do NOT use nohup or & — the loop must be IDE-tracked to wake Gemini.
