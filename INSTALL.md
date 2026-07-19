@@ -23,9 +23,9 @@ This script will:
 ---
 
 ## Step 2: Register the MCP Server with Claude Code
-Run the following command in your terminal to register the Bridge server with Claude Code:
+Run the following command in your terminal to register the Bridge server globally with Claude Code:
 ```bash
-claude mcp add bridge-mcp-server -- bridge-mcp-server
+claude mcp add --scope user bridge-mcp-server -- bridge-mcp-server
 ```
 
 Alternatively, you can manually add the configuration block to your Claude configuration file (usually located at `~/.claude.json` or `~/.config/Claude/mcp.json`):

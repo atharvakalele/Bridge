@@ -49,9 +49,9 @@ bash scripts/install.sh
 ```
 
 ### 2. Register MCP Server
-Add the server to Claude Code:
+Add the server globally to Claude Code:
 ```bash
-claude mcp add bridge-mcp-server -- bridge-mcp-server
+claude mcp add --scope user bridge-mcp-server -- bridge-mcp-server
 ```
 
 ### 3. Verify Setup
