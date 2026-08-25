@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "agy-cli": {
+      "command": "agy-cli-mcp"
+    }
+  }
+}

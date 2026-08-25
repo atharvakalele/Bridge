@@ -13,13 +13,6 @@ import time
 
 from bridge.config import load_config
 
-# Load config values
-config = load_config()
-BRAIN_ROOT = config["brain_root"]
-RESPONSES_DIR = config["responses_dir"]
-INBOX_DIR = config["inbox_dir"]
-INBOX_DONE_DIR = os.path.join(INBOX_DIR, "done")
-
 AVAILABLE_MODELS = {
     "flash-low": "Gemini 3.5 Flash (Low)",
     "flash-med": "Gemini 3.5 Flash (Medium)",
@@ -28,53 +21,49 @@ AVAILABLE_MODELS = {
     "pro-high": "Gemini 3.1 Pro (High)"
 }
 
-def _find_active_conversation():
-    best_id = None
-    best_mtime = 0
-    try:
-        for entry in os.listdir(BRAIN_ROOT):
-            full = os.path.join(BRAIN_ROOT, entry)
-            if not os.path.isdir(full) or entry == "tempmediaStorage":
-                continue
-            transcript = os.path.join(full, ".system_generated", "logs", "transcript.jsonl")
-            if os.path.exists(transcript):
-                mtime = os.path.getmtime(transcript)
-                if mtime > best_mtime:
-                    best_mtime = mtime
-                    best_id = entry
-    except Exception:
-        pass
-    return best_id
+def _cfg():
+    """Reload config each call so pin/path fixes apply without MCP restart."""
+    return load_config()
 
-def _get_paths():
-    cid = _find_active_conversation()
-    if not cid:
-        cid = "no-active-session"
-    base = os.path.join(BRAIN_ROOT, cid)
+def _get_paths(config):
+    """Always target the pinned Grok-delegations Antigravity conversation."""
+    grok_side = os.path.expanduser("~/.config/bridge/grok_side")
+    if grok_side not in sys.path:
+        sys.path.insert(0, grok_side)
+    try:
+        from bridge_target import resolve_target
+        cid, brain_root = resolve_target()
+    except Exception as e:
+        log(f"Pinned target resolve failed: {e}")
+        cid = config.get("pinned_conversation_id") or "no-active-session"
+        brain_root = config.get("brain_root")
+    base = os.path.join(brain_root, cid)
     messages = os.path.join(base, ".system_generated", "messages")
     logs = os.path.join(base, ".system_generated", "logs")
     os.makedirs(messages, exist_ok=True)
-    return cid, base, messages, base, logs
+    return cid, base, messages, base, logs, brain_root
 
 def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 def inject_message(content, title="Task from Claude Code", priority="MESSAGE_PRIORITY_HIGH"):
-    cid, base_dir, messages_dir, artifacts_dir, logs_dir = _get_paths()
-    log(f"Targeting active session: {cid}")
+    config = _cfg()
+    cid, base_dir, messages_dir, artifacts_dir, logs_dir, brain_root = _get_paths(config)
+    log(f"Targeting active session: {cid} (brain={brain_root})")
     msg_id = str(uuid.uuid4())
 
     # Get script paths from configuration
     gemini_side_dir = config["gemini_side_dir"]
     reply_script = os.path.join(gemini_side_dir, "reply_to_claude.py")
     send_script = os.path.join(gemini_side_dir, "send_to_claude.py")
+    responses_dir = config["responses_dir"]
 
     reply_instructions = (
         f"\n\n---\n"
         f"**[AUTONOMOUS LOOP — REPLY REQUIRED]**\n"
         f"You are operating in the autonomous Claude↔Antigravity loop.\n"
         f"When you finish this task, you MUST write your response to:\n"
-        f"`{RESPONSES_DIR}/{msg_id}.txt`\n"
+        f"`{responses_dir}/{msg_id}.txt`\n"
         f"Run: `python3 {reply_script} {msg_id} 'your response'`\n"
         f"Or write the file directly with run_command.\n"
         f"Claude Code is blocked waiting. Do NOT ask the user — just execute and reply.\n"
@@ -94,7 +83,7 @@ def inject_message(content, title="Task from Claude Code", priority="MESSAGE_PRI
     file_path = os.path.join(messages_dir, f"{msg_id}.json")
     with open(file_path, "w") as f:
         json.dump(payload, f)
-    return msg_id
+    return msg_id, os.path.join(responses_dir, f"{msg_id}.txt"), brain_root, cid
 
 def handle_delegate(task, context="", model="flash-low"):
     """Delegate a task to Antigravity (fire-and-forget)."""
@@ -127,27 +116,33 @@ def handle_delegate(task, context="", model="flash-low"):
     parts.append(f"**Task**:\n{task}")
 
     full_content = "\n".join(parts)
-    msg_id = inject_message(full_content, title=f"🎯 Autonomous Task [{model_label}]")
-
-    response_file = os.path.join(RESPONSES_DIR, f"{msg_id}.txt")
+    msg_id, response_file, brain_root, cid = inject_message(
+        full_content, title=f"🎯 Autonomous Task [{model_label}]"
+    )
 
     return json.dumps({
         "status": "queued",
         "task_id": msg_id,
-        "response_file": response_file
+        "response_file": response_file,
+        "conversation_id": cid,
+        "brain_root": brain_root,
     })
 
 
 def handle_check_inbox():
     """Check for proactive messages FROM Antigravity."""
-    pending = sorted(glob.glob(os.path.join(INBOX_DIR, "*.json")), key=os.path.getmtime)
+    config = _cfg()
+    inbox_dir = config["inbox_dir"]
+    inbox_done_dir = os.path.join(inbox_dir, "done")
+    os.makedirs(inbox_done_dir, exist_ok=True)
+    pending = sorted(glob.glob(os.path.join(inbox_dir, "*.json")), key=os.path.getmtime)
     messages = []
     for fpath in pending:
         try:
             with open(fpath, "r") as f:
                 data = json.load(f)
             messages.append(data)
-            done_path = os.path.join(INBOX_DONE_DIR, os.path.basename(fpath))
+            done_path = os.path.join(inbox_done_dir, os.path.basename(fpath))
             os.rename(fpath, done_path)
         except Exception as e:
             log(f"Error reading inbox message {fpath}: {e}")

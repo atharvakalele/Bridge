@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Delete AG CLI smoke/clutter conversations (brain + sqlite).
+# Usage: agy-prune                 # delete all except last SUCCESS id in state
+#        agy-prune --all           # wipe all CLI conversations
+#        agy-prune <id> [id...]    # delete specific ids
+set -euo pipefail
+ROOT="$HOME/.gemini/antigravity-cli"
+STATE="$HOME/.config/bridge/agy_cli/state.json"
+KEEP=""
+if [ "${1:-}" = "--all" ]; then
+  shift
+  KEEP=""
+elif [ $# -eq 0 ] && [ -f "$STATE" ]; then
+  KEEP=$(python3 -c "import json, os; p=os.path.expanduser('$STATE'); print(json.load(open(p)).get('last_conversation_id') or '')" 2>/dev/null || true)
+fi
+
+ids=()
+if [ $# -gt 0 ]; then
+  ids=("$@")
+else
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    ids+=("$(basename "$d")")
+  done < <(find "$ROOT/brain" -mindepth 1 -maxdepth 1 -type d 2>/dev/null || true)
+fi
+
+deleted=0
+for id in "${ids[@]}"; do
+  if [ -n "$KEEP" ] && [ "$id" = "$KEEP" ]; then
+    echo "keep $id"
+    continue
+  fi
+  rm -rf "$ROOT/brain/$id"
+  rm -f "$ROOT/conversations/${id}.db" "$ROOT/conversations/${id}.db-wal" "$ROOT/conversations/${id}.db-shm"
+  rm -f "$ROOT/annotations/${id}.pbtxt"
+  echo "deleted $id"
+  deleted=$((deleted + 1))
+done
+echo "pruned $deleted"

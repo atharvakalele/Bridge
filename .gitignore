@@ -10,9 +10,23 @@ __pycache__/
 *.pyd
 .pytest_cache/
 
-# Local Config Overrides
+# Local State, Config & Secret Overrides
 .env
 config.json
+state.json
+antigravity_target.json
+*.db
+*.db-wal
+*.db-shm
+*.pbtxt
+*.log
+*.jsonl
+
+# Response & Inbox Spool Dirs
+bridge_responses/
+grok_responses/
+to_claude/
+to_grok/
 
 # Build and Distribution Packages
 build/

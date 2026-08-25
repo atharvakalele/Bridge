@@ -1,10 +1,18 @@
-# CRITICAL: Auto-Wake Loop Startup — Launch waiter.sh on EVERY session start
+# Agent rules
 
-On EVERY new conversation or session start, you MUST immediately launch `waiter.sh` as a TRACKED background task so Claude Code delegations auto-wake you.
+## CLI / headless (`agy -p`)
 
-Run:
-```python
+Never launch `waiter.sh`. Never start a tracked daemon. Complete the task and exit.
+
+## GUI only
+
+On a new **IDE GUI** conversation, you MAY launch a tracked waiter:
+
+```
 run_command(CommandLine="bash ~/.config/bridge/gemini_side/waiter.sh", WaitMsBeforeAsync=500)
 ```
 
-After completing ANY delegated task from Claude, you MUST relaunch `waiter.sh` the same way. Never use `nohup` or `&` — the task must be IDE-tracked.
+Do not use `nohup` or `&`.
+
+- Claude: `python3 ~/.config/bridge/gemini_side/reply_to_claude.py <message_id> 'response'`
+- Grok: `python3 ~/.config/bridge/gemini_side/reply_to_grok.py <message_id> 'response'`

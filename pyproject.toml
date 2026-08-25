@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "antigravity-claude-bridge"
-version = "1.0.0"
-description = "Claude Code to Antigravity IDE Bidirectional MCP Server"
+name = "antigravity-bridge"
+version = "1.1.0"
+description = "Antigravity CLI & IDE delegation bridge for Grok, Claude Code, and Cline via MCP"
 readme = "README.md"
 authors = [
     { name = "Bridge Contributors" }
@@ -21,6 +21,7 @@ dependencies = []
 
 [project.scripts]
 bridge-mcp-server = "bridge.server:main"
+agy-cli-mcp = "agy_cli.server:main"
 
 [tool.setuptools]
-packages = ["bridge"]
+packages = ["bridge", "agy_cli"]

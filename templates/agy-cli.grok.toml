@@ -1,0 +1,9 @@
+# Grok MCP configuration snippet for Antigravity CLI delegation
+# Add this snippet to your Grok MCP configuration or register with:
+#   grok mcp add agy-cli -- agy-cli-mcp
+
+[mcp_servers.agy_cli]
+command = "agy-cli-mcp"
+# Alternatively, specify python and module explicitly:
+# command = "python3"
+# args = ["-m", "agy_cli.server"]

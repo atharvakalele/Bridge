@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Antigravity worker: run a task, stream logs, exit when done.
+# Usage: agy-job [--timeout 15m] [--cwd DIR] [--model SLUG] "task..."
+set -euo pipefail
+
+find_agy() {
+  if [ -n "${AGY_BIN:-}" ]; then
+    echo "$AGY_BIN"
+  elif [ -x "$HOME/.local/share/antigravity-cli/agy" ]; then
+    echo "$HOME/.local/share/antigravity-cli/agy"
+  elif command -v agy >/dev/null 2>&1; then
+    command -v agy
+  else
+    echo "$HOME/.local/share/antigravity-cli/agy"
+  fi
+}
+
+AGY="$(find_agy)"
+TIMEOUT="${AGY_TIMEOUT:-15m}"
+CWD="${AGY_CWD:-$(pwd)}"
+MODEL="${AGY_MODEL:-gemini-3.7-flash-medium}"
+LOG="${AGY_LOG:-/tmp/agy-job.log}"
+OUT="${AGY_OUT:-/tmp/agy-job.json}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --timeout) TIMEOUT="$2"; shift 2 ;;
+    --cwd) CWD="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
+    --log) LOG="$2"; shift 2 ;;
+    --out) OUT="$2"; shift 2 ;;
+    --) shift; break ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+if [ $# -eq 0 ]; then
+  echo "usage: agy-job [--timeout 15m] [--cwd DIR] [--model SLUG] \"task\"" >&2
+  exit 2
+fi
+
+case "${MODEL,,}" in
+  *opus*) echo "blocked model: $MODEL (never use Opus)" >&2; exit 2 ;;
+  *pro*) echo "blocked model: $MODEL (Flash only unless user overrides)" >&2; exit 2 ;;
+esac
+
+TASK="$*"
+# CLI must finish; never inherit GUI waiter-loop instructions as the task.
+TASK="Do not start waiter.sh or any long-running daemon. Do the task and finish.
+
+${TASK}"
+
+mkdir -p "$(dirname "$LOG")" "$(dirname "$OUT")"
+: > "$LOG"
+
+args=(
+  -p "$TASK"
+  --output-format json
+  --print-timeout "$TIMEOUT"
+  --dangerously-skip-permissions
+  --new-project
+)
+[ -n "$MODEL" ] && args+=(--model "$MODEL")
+
+{
+  echo "=== agy-job start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+  echo "cwd=$CWD"
+  echo "timeout=$TIMEOUT"
+  echo "model=${MODEL:-default}"
+  echo "task=$TASK"
+} >>"$LOG"
+
+set +e
+(
+  cd "$CWD" || exit 1
+  "$AGY" "${args[@]}"
+) >"$OUT" 2>>"$LOG"
+rc=$?
+set -e
+
+{
+  echo "=== agy-job exit rc=$rc $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+} >>"$LOG"
+
+if [ -f "$OUT" ]; then
+  python3 - "$OUT" <<'PY' || true
+import json,sys
+p=sys.argv[1]
+try:
+    d=json.load(open(p))
+except Exception as e:
+    print(open(p).read()[:4000]); raise SystemExit
+print("status:", d.get("status"))
+print("conversation_id:", d.get("conversation_id"))
+print("duration_seconds:", d.get("duration_seconds"))
+if d.get("error"):
+    print("error:", d["error"])
+print("--- response ---")
+print(d.get("response") or "")
+PY
+fi
+
+exit $rc
