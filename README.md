@@ -28,7 +28,8 @@ When an agent needs to explore a massive codebase, execute refactors, run test s
 ## ⚠️ Honest Limitations
 
 - **Not Stress-Tested**: This bridge is under active development and built for rapid local workflows. Edge-case error handling and retries are evolving.
-- **No Background Daemons in Headless Mode**: Headless `agy -p` expects tasks to complete and exit cleanly. If Antigravity starts a long-running background daemon or tracking loop, the process can hang until timeout.
+- **No Background Daemons in Headless Mode**: Headless `agy -p` expects tasks to complete and exit cleanly. To prevent `WaitForConversationFullyIdle` hangs, the runner streams JSON events and stops the child process immediately upon receiving the `result` event so idle-wait cannot hang the MCP.
+- **Heartbeat Monitoring**: Parent agents and callers should treat a live `/tmp/agy-job.progress` file as an active heartbeat during execution.
 - **Official CLI Required**: You must install the official Google Antigravity CLI (`agy`) and authenticate before running this MCP server.
 - **Two Distinct Modes**:
   - **`agy-cli` (New / Default)**: Direct child-process execution per tool call (`agy_run`). No GUI or waiter loop needed.
