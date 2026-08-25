@@ -2,159 +2,24 @@
 """
 agy-cli MCP — global Antigravity CLI worker.
 
-Any client (Grok Build, Claude Code, Cline, etc.) can call these tools.
+Any client (Grok Build, Claude Code, etc.) can call these tools.
 Runs official `agy -p` as a child process: start, wait, return status + reply.
 Uses the signed-in Google / Gemini subscription (not an API key).
 """
 
-import datetime
 import json
 import os
-import shutil
-import subprocess
 import sys
 
-
-def find_agy_bin() -> str:
-    """Discover official Antigravity CLI binary location."""
-    if os.environ.get("AGY_BIN"):
-        return os.environ["AGY_BIN"]
-    default_share = os.path.expanduser("~/.local/share/antigravity-cli/agy")
-    if os.path.exists(default_share) and os.access(default_share, os.X_OK):
-        return default_share
-    which_agy = shutil.which("agy")
-    if which_agy:
-        return which_agy
-    return default_share
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from runner import run_agy, load_state, PROGRESS_PATH  # noqa: E402
 
 
-AGY_BIN = find_agy_bin()
-STATE_PATH = os.path.expanduser("~/.config/bridge/agy_cli/state.json")
-DEFAULT_CWD = os.path.expanduser("~")
-DEFAULT_TIMEOUT = os.environ.get("AGY_TIMEOUT", "15m")
-DEFAULT_MODEL = os.environ.get("AGY_MODEL", "gemini-3.7-flash-medium")
-BLOCKED_MODELS = ("opus", "claude-opus")
-
-
-def log(msg: str) -> None:
+def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
-def load_state() -> dict:
-    try:
-        with open(STATE_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def save_state(data: dict) -> None:
-    os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
-    with open(STATE_PATH, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-
-
-def run_agy(
-    task: str,
-    cwd: str = None,
-    model: str = None,
-    timeout: str = None,
-    continue_last: bool = False,
-    conversation_id: str = None,
-) -> dict:
-    agy_binary = find_agy_bin()
-    cwd = os.path.expanduser(cwd or DEFAULT_CWD)
-    if not os.path.isdir(cwd):
-        return {"status": "ERROR", "error": f"cwd does not exist: {cwd}"}
-    timeout = timeout or DEFAULT_TIMEOUT
-    model = model or DEFAULT_MODEL
-    if any(b in (model or "").lower() for b in BLOCKED_MODELS):
-        return {
-            "status": "ERROR",
-            "error": f"model {model} is blocked (quota). Use Gemini Flash only.",
-        }
-    state = load_state()
-
-    prefix = (
-        "You are Antigravity CLI invoked by a parent coding agent. "
-        "Do not start waiter.sh or any long-running daemon. "
-        "Do the task and finish so this process can exit.\n\n"
-    )
-    full_task = prefix + task
-
-    args = [
-        agy_binary,
-        "-p",
-        full_task,
-        "--output-format",
-        "json",
-        "--print-timeout",
-        str(timeout),
-        "--dangerously-skip-permissions",
-    ]
-    args.extend(["--model", model])
-    if conversation_id:
-        args.extend(["--conversation", conversation_id])
-    elif continue_last and state.get("last_conversation_id"):
-        args.extend(["--conversation", state["last_conversation_id"]])
-    else:
-        args.append("--new-project")
-
-    started = datetime.datetime.utcnow().isoformat() + "Z"
-    try:
-        proc = subprocess.run(
-            args,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=None,
-        )
-    except Exception as e:
-        return {"status": "ERROR", "error": str(e), "started": started}
-
-    raw = (proc.stdout or "").strip()
-    result = None
-    if raw:
-        try:
-            result = json.loads(raw)
-        except json.JSONDecodeError:
-            # last JSON object if extra logs leaked
-            for line in reversed(raw.splitlines()):
-                line = line.strip()
-                if line.startswith("{"):
-                    try:
-                        result = json.loads(line)
-                        break
-                    except json.JSONDecodeError:
-                        continue
-    if result is None:
-        result = {
-            "status": "ERROR",
-            "error": f"agy produced no JSON (exit {proc.returncode})",
-            "stderr_tail": (proc.stderr or "")[-2000:],
-            "stdout_tail": raw[-2000:],
-        }
-
-    result["exit_code"] = proc.returncode
-    result["started"] = started
-    result["cwd"] = cwd
-    result["model"] = model or "default"
-    result["finished"] = datetime.datetime.utcnow().isoformat() + "Z"
-
-    cid = result.get("conversation_id")
-    if cid:
-        state["last_conversation_id"] = cid
-        state["last_status"] = result.get("status")
-        state["last_cwd"] = cwd
-        state["last_model"] = model
-        state["updated"] = result["finished"]
-        save_state(state)
-
-    return result
-
-
-def handle_run(args: dict) -> str:
+def handle_run(args):
     return json.dumps(
         run_agy(
             task=args.get("task") or "",
@@ -167,11 +32,13 @@ def handle_run(args: dict) -> str:
     )
 
 
-def handle_models(_args=None) -> str:
-    agy_binary = find_agy_bin()
+def handle_models(_args=None):
+    import subprocess
+    from runner import AGY_BIN
+
     try:
         proc = subprocess.run(
-            [agy_binary, "models"],
+            [AGY_BIN, "models"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -192,8 +59,14 @@ def handle_models(_args=None) -> str:
         return json.dumps({"status": "ERROR", "error": str(e)})
 
 
-def handle_status(_args=None) -> str:
-    return json.dumps(load_state() or {"status": "empty", "note": "no runs yet"})
+def handle_status(_args=None):
+    st = load_state() or {}
+    try:
+        with open(PROGRESS_PATH) as f:
+            st["live"] = json.load(f)
+    except Exception:
+        st["live"] = None
+    return json.dumps(st or {"status": "empty", "note": "no runs yet"})
 
 
 TOOLS = [
@@ -253,7 +126,7 @@ TOOLS = [
 ]
 
 
-def main() -> None:
+def main():
     log("agy-cli MCP ready (official agy child process)")
     while True:
         try:
