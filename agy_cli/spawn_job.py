@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,20 +51,115 @@ def queue_push(job_id: str) -> None:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+def _pid_is_agy(pid: int) -> bool:
+    """True only if this pid is official agy, not a recycled PID (e.g. chrome)."""
+    try:
+        os.kill(pid, 0)
+        raw = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+    except Exception:
+        return False
+    return "antigravity-cli/agy" in raw or raw.rstrip().endswith(" agy")
+
+
 def find_running_job() -> str | None:
     if not os.path.isdir(JOBS):
         return None
+    found = None
+    newest = -1.0
     for name in os.listdir(JOBS):
         pidf = os.path.join(JOBS, name, "agy.pid")
         if not os.path.isfile(pidf):
             continue
         try:
             pid = int(open(pidf).read().strip())
-            os.kill(pid, 0)
-            return name
         except Exception:
             continue
-    return None
+        if not _pid_is_agy(pid):
+            continue
+        mtime = os.path.getmtime(pidf)
+        if mtime > newest:
+            newest = mtime
+            found = name
+    return found
+
+
+def _kill_tree(pid: int) -> None:
+    """SIGTERM then SIGKILL a pid and its descendants. Never grok."""
+    from windows import grok_pids
+
+    if pid in grok_pids():
+        return
+    kids = []
+    try:
+        out = subprocess.check_output(["pgrep", "-P", str(pid)], text=True, stderr=subprocess.DEVNULL)
+        kids = [int(x) for x in out.split() if x.strip().isdigit()]
+    except Exception:
+        pass
+    for k in kids:
+        _kill_tree(k)
+    try:
+        os.kill(pid, 15)
+    except ProcessLookupError:
+        return
+    except Exception:
+        pass
+    time.sleep(0.3)
+    try:
+        os.kill(pid, 9)
+    except Exception:
+        pass
+
+
+def kill_job(job_id: str | None = None) -> dict:
+    """Stop a live AG job (and its children). Does not touch Grok."""
+    import time as _time
+
+    jid = job_id or find_running_job()
+    if not jid:
+        return {"status": "ERROR", "error": "no running AG job"}
+    d = os.path.join(JOBS, jid)
+    pid = None
+    pidf = os.path.join(d, "agy.pid")
+    if os.path.isfile(pidf):
+        try:
+            pid = int(open(pidf).read().strip())
+        except Exception:
+            pid = None
+    if pid and _pid_is_agy(pid):
+        try:
+            os.killpg(pid, 15)
+        except Exception:
+            pass
+        _kill_tree(pid)
+    # supervisor
+    try:
+        out = subprocess.check_output(["pgrep", "-af", "job_supervisor.py " + jid], text=True)
+        for line in out.splitlines():
+            if "pgrep" in line:
+                continue
+            sp = int(line.split(None, 1)[0])
+            _kill_tree(sp)
+    except Exception:
+        pass
+    notify_path = os.path.join(d, "notify")
+    with open(notify_path, "a") as f:
+        f.write(f"CANCELED {jid}\n")
+        f.flush()
+    meta_path = os.path.join(d, "meta.json")
+    meta = {}
+    if os.path.isfile(meta_path):
+        try:
+            meta = json.load(open(meta_path))
+        except Exception:
+            meta = {}
+    meta["phase"] = "done"
+    meta["finish"] = "CANCELED"
+    write_json(meta_path, meta)
+    write_json(
+        os.path.join(d, "result.json"),
+        {"status": "CANCELED", "finish": "CANCELED", "job_id": jid, "finished": _now()},
+    )
+    return {"status": "CANCELED", "job_id": jid, "agy_pid": pid}
 
 
 def spawn_job(

@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from runner import load_state  # noqa: E402
-from spawn_job import spawn_job, read_job, JOBS  # noqa: E402
+from spawn_job import spawn_job, read_job, kill_job, JOBS  # noqa: E402
 from windows import existing_preview, preview_open, reopen_preview, close_wid  # noqa: E402
 
 
@@ -65,9 +65,15 @@ def handle_models(_args=None):
 
 def handle_status(args=None):
     args = args or {}
-    job_id = args.get("job_id") or (load_state() or {}).get("last_job_id")
+    from spawn_job import find_running_job
+
+    job_id = args.get("job_id") or find_running_job() or (load_state() or {}).get("last_job_id")
     if job_id:
-        return json.dumps(read_job(job_id))
+        out = read_job(job_id)
+        running = find_running_job()
+        out["running_job_id"] = running
+        out["preview_open"] = preview_open()
+        return json.dumps(out)
     st = load_state() or {"status": "empty", "note": "no runs yet"}
     st["preview_open"] = preview_open()
     return json.dumps(st)
@@ -209,6 +215,23 @@ TOOLS = [
         },
     },
     {
+        "name": "agy_kill",
+        "description": (
+            "Stop the live AG job (or job_id). Kills agy and its children (llama, ssh). "
+            "Does not kill Grok. Returns CANCELED. Use when the user says stop/kill/cancel AG."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "Optional. Defaults to the live AG job.",
+                }
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "agy_preview",
         "description": "Manage the AG log preview terminal: check status, reopen pane, or hide pane.",
         "inputSchema": {
@@ -248,7 +271,14 @@ def main():
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "agy-cli", "version": "1.0.0"},
+                        "serverInfo": {"name": "agy-cli", "version": "1.1.0"},
+                        "instructions": (
+                            "Grok-AG worker. AG does not message Grok chats; results are files. "
+                            "agy_run: fire-and-forget, returns job_id now (STARTED or QUEUED). "
+                            "Then: python3 ~/.config/bridge/agy_cli/watch_job.py <job_id> as a background monitor. "
+                            "agy_status: live job if job_id omitted. agy_kill: stop AG (and children), not Grok. "
+                            "Default model gemini-3.7-flash-medium. Never Opus. Never waiter.sh. Never run agy in this chat."
+                        ),
                     },
                 }
             elif method == "notifications/initialized":
@@ -269,6 +299,8 @@ def main():
                     text = handle_models(args)
                 elif name == "agy_status":
                     text = handle_status(args)
+                elif name == "agy_kill":
+                    text = json.dumps(kill_job(args.get("job_id")))
                 elif name == "agy_preview":
                     text = handle_preview(args)
                 else:
