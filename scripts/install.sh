@@ -10,13 +10,17 @@ GROK_SKILL="${HOME}/.grok/skills/agy-cli"
 
 echo "Installing Grok-AG worker from ${REPO_DIR}"
 
-mkdir -p "$CONFIG_DIR/agy_cli" "$CONFIG_DIR/grok_side" "$BIN_DIR" "$GROK_SKILL"
+GROK_RULES="${HOME}/.grok/rules"
+mkdir -p "$CONFIG_DIR/agy_cli" "$CONFIG_DIR/grok_side" "$BIN_DIR" "$GROK_SKILL" "$GROK_RULES"
 
 cp -a "$REPO_DIR/agy_cli/." "$CONFIG_DIR/agy_cli/"
 if [[ -d "$REPO_DIR/grok_side" ]]; then
   cp -a "$REPO_DIR/grok_side/." "$CONFIG_DIR/grok_side/"
 fi
 cp -a "$REPO_DIR/skills/agy-cli/." "$GROK_SKILL/"
+if [[ -f "$REPO_DIR/skills/agy-cli/ALWAYS.md" ]]; then
+  cp "$REPO_DIR/skills/agy-cli/ALWAYS.md" "$GROK_RULES/agy-cli.md"
+fi
 chmod +x "$CONFIG_DIR/agy_cli/"*.py 2>/dev/null || true
 
 ln -sfn "$REPO_DIR/scripts/agy-cli-mcp" "$BIN_DIR/agy-cli-mcp"

@@ -39,7 +39,7 @@ Start Grok with `grok-ide` (loads `GROK_SYSTEM_PROMPT.md`). Restart Grok after `
 
 This pipeline is **Grok ↔ AG only**. Only MCP server: `agy-cli`. Do not add it to Cline or Claude. Do not run `agy-job` or `waiter.sh`.
 
-Playbook on disk: `~/.grok/skills/agy-cli/SKILL.md` (this file).
+Playbook on disk: `~/.grok/skills/agy-cli/SKILL.md`. Always-on Grok rule: `~/.grok/rules/agy-cli.md` (every Grok chat, no extra briefing).
 
 ## Finish kinds
 
