@@ -9,20 +9,35 @@
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from runner import AGY_BIN, BLOCKED, DEFAULT_MODEL, DEFAULT_TIMEOUT, load_state, save_state, _now  # noqa: E402
+from runner import (  # noqa: E402
+    AGY_BIN,
+    BLOCKED,
+    DEFAULT_MODEL,
+    DEFAULT_TIMEOUT,
+    load_state,
+    save_state,
+    _now,
+    parse_timeout,
+    explain_finish,
+)
 from sessions import remember  # noqa: E402
-from windows import append_preview, close_if_success  # noqa: E402
+from windows import append_preview, close_if_success, preview_open  # noqa: E402
 
 JOBS = os.path.expanduser("~/.config/bridge/agy_cli/jobs")
+SUPERVISOR = os.path.expanduser("~/.config/bridge/agy_cli/job_supervisor.py")
+QUEUE_FILE = os.path.expanduser("~/.config/bridge/agy_cli/queue.json")
+
 NETWORK_MARKERS = (
     "connection refused",
     "network is unreachable",
@@ -55,6 +70,53 @@ def write_json(path: str, obj: dict) -> None:
     os.replace(tmp, path)
 
 
+def queue_pop_next() -> str | None:
+    if not os.path.isfile(QUEUE_FILE):
+        return None
+    try:
+        with open(QUEUE_FILE, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.seek(0)
+                content = f.read().strip()
+                queue = json.loads(content) if content else []
+                if not isinstance(queue, list):
+                    queue = []
+                next_id = None
+                remaining = []
+                for jid in queue:
+                    if next_id is None:
+                        meta_p = os.path.join(JOBS, jid, "meta.json")
+                        res_p = os.path.join(JOBS, jid, "result.json")
+                        is_done = False
+                        if os.path.isfile(res_p):
+                            is_done = True
+                        elif os.path.isfile(meta_p):
+                            try:
+                                with open(meta_p) as mf:
+                                    m = json.load(mf)
+                                    if m.get("phase") == "done":
+                                        is_done = True
+                            except Exception:
+                                pass
+                        if not is_done and os.path.isdir(os.path.join(JOBS, jid)):
+                            next_id = jid
+                        else:
+                            continue
+                    else:
+                        remaining.append(jid)
+                f.seek(0)
+                f.truncate()
+                json.dump(remaining, f, indent=2)
+                f.write("\n")
+                f.flush()
+                return next_id
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        return None
+
+
 def notify(job_id: str, kind: str, extra: str = "") -> None:
     line = kind if not extra else f"{kind} {extra}"
     path = os.path.join(job_dir(job_id), "notify")
@@ -65,21 +127,36 @@ def notify(job_id: str, kind: str, extra: str = "") -> None:
 
 
 def classify(result: dict | None, rc: int | None, log_tail: str, timed_out: bool) -> str:
+    """Classify job termination into standard finish kinds:
+    SUCCESS: result status was SUCCESS.
+    ERROR: Antigravity CLI returned an error status.
+    CRASH: Process died/exited with no result event.
+    TIMEOUT: Wall-clock deadline was exceeded and supervisor terminated the process.
+    NETWORK: Connection, TLS, DNS, auth, or HTTP 429/5xx error detected.
+    CANCELED: Job was canceled or interrupted (SIGINT/SIGTERM).
+    """
     if timed_out:
         return "TIMEOUT"
-    low = (log_tail or "").lower()
+    err_text = ""
+    if result and isinstance(result, dict):
+        err_text = str(result.get("error") or "")
+    low = (log_tail or "").lower() + " " + err_text.lower()
     if any(m in low for m in NETWORK_MARKERS):
         return "NETWORK"
     if result:
         st = (result.get("status") or "").upper()
         if st == "SUCCESS":
             return "SUCCESS"
-        if st in ("ERROR", "CANCELED", "INTERRUPTED", "INVALID"):
-            return st
+        if st in ("ERROR", "INVALID", "FAILED"):
+            return "ERROR"
+        if st in ("CANCELED", "CANCELLED", "INTERRUPTED"):
+            return "CANCELED"
+        if st == "TIMEOUT":
+            return "TIMEOUT"
         return "ERROR"
     if rc is None:
         return "TIMEOUT"
-    if rc < 0:
+    if rc < 0 or rc in (130, 143):
         return "CANCELED"
     if rc != 0:
         return "CRASH"
@@ -146,6 +223,7 @@ def run_job(job_id: str) -> int:
         payload = {
             "status": "ERROR",
             "finish": "ERROR",
+            "finish_reason": explain_finish("ERROR"),
             "error": str(e),
             "job_id": job_id,
             "finished": _now(),
@@ -213,6 +291,32 @@ def run_job(job_id: str) -> int:
             except Exception:
                 proc.kill()
 
+    # Enforce wall-clock deadline
+    timeout_sec = parse_timeout(timeout)
+    deadline = time.time() + timeout_sec
+    preview_closed_flag = False
+
+    def watchdog() -> None:
+        nonlocal timed_out, preview_closed_flag
+        while proc.poll() is None and not timed_out:
+            if time.time() >= deadline:
+                timed_out = True
+                stop_agy()
+                break
+            if not preview_open():
+                if not preview_closed_flag:
+                    preview_closed_flag = True
+                    try:
+                        meta["preview_closed"] = True
+                        write_json(meta_path, meta)
+                        open(os.path.join(d, "preview_closed"), "w").close()
+                    except Exception:
+                        pass
+            time.sleep(0.5)
+
+    wd_thread = threading.Thread(target=watchdog, daemon=True)
+    wd_thread.start()
+
     try:
         assert proc.stdout is not None
         for line in proc.stdout:
@@ -261,6 +365,7 @@ def run_job(job_id: str) -> int:
         payload.update(
             {
                 "finish": kind,
+                "finish_reason": explain_finish(kind),
                 "job_id": job_id,
                 "exit_code": rc,
                 "cwd": cwd,
@@ -270,7 +375,7 @@ def run_job(job_id: str) -> int:
             }
         )
         if kind != "SUCCESS" and not payload.get("error"):
-            payload["error"] = kind
+            payload["error"] = kind if kind != "TIMEOUT" else f"Job exceeded timeout ({timeout})"
         write_json(result_path, payload)
         st = load_state()
         st.update(
@@ -306,6 +411,30 @@ def run_job(job_id: str) -> int:
         meta["finish"] = kind
         meta["finished"] = payload["finished"]
         write_json(meta_path, meta)
+
+        # Pop the next queued id and start job_supervisor.py for it (FIFO)
+        next_job_id = queue_pop_next()
+        if next_job_id:
+            next_d = job_dir(next_job_id)
+            next_meta_path = os.path.join(next_d, "meta.json")
+            next_cwd = os.path.expanduser("~")
+            if os.path.isfile(next_meta_path):
+                try:
+                    with open(next_meta_path) as mf:
+                        next_cwd = json.load(mf).get("cwd") or next_cwd
+                except Exception:
+                    pass
+            next_env = os.environ.copy()
+            next_env["DISPLAY"] = next_env.get("DISPLAY") or ":0.0"
+            subprocess.Popen(
+                [os.environ.get("PYTHON", "python3"), SUPERVISOR, next_job_id],
+                cwd=next_cwd,
+                env=next_env,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=open(os.path.join(next_d, "supervisor.err"), "a"),
+            )
+
         return 0 if kind == "SUCCESS" else 1
 
 
@@ -318,3 +447,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

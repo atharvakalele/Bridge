@@ -19,17 +19,31 @@ When an agent needs to explore a massive codebase, execute refactors, run test s
 ## 🚀 Key Architectural Details
 
 - **Fire-and-Forget Job Supervisor**: `agy_run` returns immediately. The detached supervisor manages `agy -p`, tees output to `job.log` and `stream.ndjson`, and writes classified results (`SUCCESS`, `ERROR`, `CRASH`, `TIMEOUT`, `NETWORK`, `CANCELED`).
-- **Single Preview Window**: Opens or reuses one visible preview window titled `AG-job` (`xfce4-terminal --disable-server`). Existing preview windows are reused instead of stacking new ones. Closing the preview window does **not** kill Antigravity. Window management carefully avoids touching Grok's own terminal panes.
+- **FIFO Job Queue**: If a job is already in flight, new requests are queued (`status=QUEUED`) via flock-synchronized `queue.json`. When the active job completes, the supervisor automatically starts the next queued job in FIFO order.
+- **Single Preview Window & Reopen**: Opens or reuses one visible preview window titled `AG-job` (`xfce4-terminal --disable-server`). Logs stay open upon completion so history remains visible. If the preview pane is closed while a job is running, `preview_closed=true` is recorded and can be queried or restored via `agy_preview`. Window management never touches Grok's terminal panes.
+- **Wall-Clock Timeout Enforcement**: The supervisor calculates strict wall-clock deadlines from timeout strings (`15m`, `60s`, `2h`) and terminates the process if the time limit is exceeded, recording `finish=TIMEOUT`.
 - **Per-CWD Conversation Sessions**: Maintains a mapping between repository `cwd` and Antigravity conversation IDs. Follow-up jobs in the same working directory automatically continue the existing AG conversation context unless `new_session=true` is requested.
-- **Concurrency Protection**: Returns `ALREADY_RUNNING` if a job is already in flight to avoid colliding processes.
 - **Gemini Subscription Powered**: Runs on your authenticated Google / Gemini subscription via official `agy` without per-token API billing.
 - **Sensible, Safe Model Defaults**: Defaults to `gemini-3.7-flash-medium`. Quota-heavy models (e.g. Claude Opus) are blocked to prevent quota exhaustion.
 
 ---
 
-## ⚠️ Honest Limitations & Current Status
+## 📊 Finish Classifications (Plain English)
 
-- **Still in Active Development**: Edge cases across `TIMEOUT`, `CRASH`, and `NETWORK` recovery paths, multi-job queuing, and in-session MCP hot-reloading are not yet fully proven under all scenarios.
+Every job execution completes with one of the following classified finish kinds:
+
+- **`SUCCESS`**: Task completed successfully with result status SUCCESS.
+- **`ERROR`**: Antigravity reported an error during task execution.
+- **`CRASH`**: The agy process died or exited without emitting a final result event.
+- **`TIMEOUT`**: Execution hit the wall-clock timeout limit and was stopped by the supervisor.
+- **`NETWORK`**: Network, authentication, rate limit (429), or server error (5xx) occurred.
+- **`CANCELED`**: Job was canceled or interrupted before completion.
+
+---
+
+## ⚠️ Current Status & Robustness
+
+- **Queue & Timeout Support**: Multi-job queuing, live preview-closed detection, and wall-clock timeout enforcement exist and will be stress-tested before the next push.
 - **Headless CLI Execution**: Detached jobs expect tasks to complete and exit cleanly. The runner extracts `result` stream events and manages clean process shutdown.
 - **Legacy GUI Mode**: The `bridge-mcp-server` / `waiter.sh` file-spool workflow for the Antigravity IDE GUI remains available as legacy, while `agy-cli` is the modern CLI path.
 - **Official CLI Required**: Requires an authenticated local installation of Google Antigravity CLI (`agy`).
@@ -61,6 +75,16 @@ pip install -e .
 
 # Run installer (sets up config and symlinks helper scripts)
 ./scripts/install.sh
+```
+
+### 3. Syncing Worker Code
+To synchronize or verify Python worker code between the repository and your live config (`~/.config/bridge/agy_cli/`):
+```bash
+# Install / sync repository files to live directory
+./scripts/sync-agy-cli.sh
+
+# Verify no drift exists (exits 1 if drift detected)
+./scripts/sync-agy-cli.sh --check
 ```
 
 ---
@@ -106,7 +130,8 @@ Add `agy-cli` to your `cline_mcp_settings.json` (see `templates/agy-cli.cline.js
       "autoApprove": [
         "agy_run",
         "agy_models",
-        "agy_status"
+        "agy_status",
+        "agy_preview"
       ]
     }
   }
@@ -122,9 +147,10 @@ Add `agy-cli` to your `cline_mcp_settings.json` (see `templates/agy-cli.cline.js
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `agy_run` | `task` (required), `cwd`, `model`, `timeout`, `continue_last`, `conversation_id`, `new_session` | Detached fire-and-forget execution. Spawns supervisor, opens preview terminal, returns `job_id` immediately. |
+| `agy_run` | `task` (required), `cwd`, `model`, `timeout`, `continue_last`, `conversation_id`, `new_session` | Detached fire-and-forget execution. Spawns supervisor (or queues behind active jobs), opens preview terminal, returns `job_id` immediately. |
 | `agy_models` | *none* | Lists available model slugs on the authenticated account. |
-| `agy_status` | `job_id` (optional) | Returns metadata and state from the specified or last run (`finish`, `status`, `cwd`, `model`, `log`). |
+| `agy_status` | `job_id` (optional) | Returns metadata and state from the specified or last run (`finish`, `status`, `cwd`, `model`, `log`, `preview_open`). |
+| `agy_preview` | `action` (`status` \| `reopen` \| `hide`), `job_id` (optional) | Inspects preview window status, reopens a closed preview terminal, or hides/dismisses the pane. |
 
 ### CLI Utilities
 
@@ -142,8 +168,9 @@ Add `agy-cli` to your `cline_mcp_settings.json` (see `templates/agy-cli.cline.js
 
 ## 🌿 Branch Policy & Contributing
 
-- **`main`**: Stable, tagged release snapshots.
-- **`dev`**: Default active development branch. All Pull Requests should target `dev`.
+- **`main`**: Default branch and stable release snapshots (`master` has been removed).
+- **`dev`**: Active development branch. All internal and external changes land on `dev`.
+- **Outside Contributors**: No outside contributors yet. When new contributors join, they may push/PR to `dev` only, not `main`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, testing instructions, and pull request conventions.
 
@@ -152,3 +179,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, testing inst
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+

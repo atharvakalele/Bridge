@@ -104,6 +104,11 @@ def existing_preview() -> dict | None:
     return None
 
 
+def preview_open() -> bool:
+    """Return True if an AG preview pane is currently open on screen."""
+    return existing_preview() is not None
+
+
 def append_preview(text: str, log_path: str | None = None) -> None:
     paths = [PREVIEW_LOG]
     if log_path and log_path not in paths:
@@ -193,3 +198,14 @@ def ensure_preview(log_path: str, job_id: str, new_session: bool = False) -> tup
         f.write("\n")
     os.replace(tmp, STATE_PATH)
     return ("opened", pid)
+
+
+def reopen_preview(job_id: str | None = None, log_path: str | None = None) -> tuple[str, int | None]:
+    """Opens one preview pane if missing; reuses if present."""
+    if not log_path and job_id:
+        p = os.path.join(JOBS, job_id, "job.log")
+        if os.path.isfile(p):
+            log_path = p
+    log_path = log_path or PREVIEW_LOG
+    return ensure_preview(log_path, job_id or "latest", new_session=False)
+

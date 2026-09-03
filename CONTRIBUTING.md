@@ -4,9 +4,11 @@ We welcome contributions, fixes, and workflow improvements!
 
 ## Branch Policy & Pull Requests
 
-- **Always target `dev`**: All Pull Requests must be opened against the `dev` branch.
-  - `main` is reserved for stable, tagged releases.
-  - `dev` is the active development branch.
+- **Default & Dev Branches**:
+  - `main` is the default repository branch for stable, tagged releases (`master` has been removed).
+  - `dev` is the active development branch where all ongoing work lands.
+- **Outside Contributors**:
+  - There are currently no outside contributors. When outside contributors join, all changes and PRs must target the `dev` branch only (never push or open PRs directly to `main`).
 - **Keep PRs small & focused**: Smaller, modular PRs make review and debugging much faster.
 
 ## Security & Secrets
@@ -23,17 +25,22 @@ Before submitting a PR, verify that the local MCP server and CLI wrappers functi
    pip install -e .
    ```
 
-2. **Test Model Listing**:
+2. **Verify agy_cli Sync & Integrity**:
+   ```bash
+   ./scripts/sync-agy-cli.sh --check
+   ```
+
+3. **Test Model Listing**:
    ```bash
    python3 -c "from agy_cli.server import handle_models; print(handle_models())"
    ```
 
-3. **Run a smoke task via CLI**:
+4. **Run a smoke task via CLI**:
    ```bash
    agy-job --timeout 2m "echo 'smoke test'; ls -la"
    ```
 
-4. **Verify MCP Server startup**:
+5. **Verify MCP Server startup**:
    ```bash
    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}' | agy-cli-mcp
    ```

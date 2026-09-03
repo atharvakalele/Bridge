@@ -30,6 +30,45 @@ DEFAULT_MODEL = os.environ.get("AGY_MODEL", "gemini-3.7-flash-medium")
 DEFAULT_TIMEOUT = os.environ.get("AGY_TIMEOUT", "15m")
 BLOCKED = ("opus", "claude-opus")
 
+FINISH_EXPLANATIONS = {
+    "SUCCESS": "Task completed successfully with result status SUCCESS.",
+    "ERROR": "Antigravity reported an error during task execution.",
+    "CRASH": "The agy process died or exited without emitting a final result event.",
+    "TIMEOUT": "Execution hit the wall-clock timeout limit and was stopped by the supervisor.",
+    "NETWORK": "Network, authentication, rate limit (429), or server error (5xx) occurred.",
+    "CANCELED": "Job was canceled or interrupted before completion.",
+}
+
+
+def explain_finish(kind: str) -> str:
+    """Return a plain-English explanation of why the job finished with this status."""
+    return FINISH_EXPLANATIONS.get(kind.upper(), f"Job finished with status {kind}.")
+
+
+def parse_timeout(val: str | int | float | None) -> float:
+    """Parse timeout string like '15m', '60s', '2h' into seconds (float)."""
+    if val is None:
+        return 900.0  # 15m default
+    if isinstance(val, (int, float)):
+        return max(1.0, float(val))
+    s = str(val).strip().lower()
+    if not s:
+        return 900.0
+    try:
+        if s.endswith("ms"):
+            return max(0.1, float(s[:-2]) / 1000.0)
+        if s.endswith("s"):
+            return max(1.0, float(s[:-1]))
+        if s.endswith("m"):
+            return max(1.0, float(s[:-1]) * 60.0)
+        if s.endswith("h"):
+            return max(1.0, float(s[:-1]) * 3600.0)
+        if s.endswith("d"):
+            return max(1.0, float(s[:-1]) * 86400.0)
+        return max(1.0, float(s))
+    except ValueError:
+        return 900.0
+
 
 def _now():
     return datetime.datetime.utcnow().isoformat() + "Z"
