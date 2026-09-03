@@ -12,10 +12,12 @@ CONFIG_DIR="$HOME/.config/bridge"
 echo "Creating config directories under: $CONFIG_DIR"
 mkdir -p "$CONFIG_DIR/agy_cli" "$CONFIG_DIR/gemini_side" "$CONFIG_DIR/grok_side"
 
-# 2. Deploy gemini-side and grok-side scripts
+# 2. Deploy agy_cli, gemini-side and grok-side scripts
 echo "Deploying bridge scripts to: $CONFIG_DIR"
+cp -r "$REPO_DIR/agy_cli/"* "$CONFIG_DIR/agy_cli/" 2>/dev/null || true
 cp -r "$REPO_DIR/gemini_side/"* "$CONFIG_DIR/gemini_side/" 2>/dev/null || true
 cp -r "$REPO_DIR/grok_side/"* "$CONFIG_DIR/grok_side/" 2>/dev/null || true
+chmod +x "$CONFIG_DIR/agy_cli/"*.py 2>/dev/null || true
 chmod +x "$CONFIG_DIR/gemini_side/"*.sh "$CONFIG_DIR/gemini_side/"*.py 2>/dev/null || true
 chmod +x "$CONFIG_DIR/grok_side/"*.sh "$CONFIG_DIR/grok_side/"*.py 2>/dev/null || true
 

@@ -14,6 +14,10 @@ __pycache__/
 .env
 config.json
 state.json
+sessions.json
+preview.json
+preview.log
+jobs/
 antigravity_target.json
 *.db
 *.db-wal
@@ -21,6 +25,7 @@ antigravity_target.json
 *.pbtxt
 *.log
 *.jsonl
+*.pid
 
 # Response & Inbox Spool Dirs
 bridge_responses/

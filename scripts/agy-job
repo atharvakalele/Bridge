@@ -2,9 +2,15 @@
 """CLI wrapper around the same runner the MCP server uses."""
 import argparse
 import json
+import os
 import sys
 
-sys.path.insert(0, "/home/atharvakalele/.config/bridge/agy_cli")
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.isdir(os.path.join(repo_root, "agy_cli")):
+    sys.path.insert(0, os.path.join(repo_root, "agy_cli"))
+elif os.path.isdir(os.path.expanduser("~/.config/bridge/agy_cli")):
+    sys.path.insert(0, os.path.expanduser("~/.config/bridge/agy_cli"))
+
 from runner import run_agy  # noqa: E402
 
 

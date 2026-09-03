@@ -12,7 +12,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from runner import run_agy, load_state, PROGRESS_PATH  # noqa: E402
+from runner import load_state  # noqa: E402
+from spawn_job import spawn_job, read_job  # noqa: E402
 
 
 def log(msg):
@@ -20,14 +21,16 @@ def log(msg):
 
 
 def handle_run(args):
+    """Fire-and-forget: detach AG, open preview terminal, return job_id now."""
     return json.dumps(
-        run_agy(
+        spawn_job(
             task=args.get("task") or "",
             cwd=args.get("cwd"),
             model=args.get("model"),
             timeout=args.get("timeout"),
             continue_last=bool(args.get("continue_last")),
             conversation_id=args.get("conversation_id"),
+            new_session=bool(args.get("new_session")),
         )
     )
 
@@ -59,25 +62,24 @@ def handle_models(_args=None):
         return json.dumps({"status": "ERROR", "error": str(e)})
 
 
-def handle_status(_args=None):
-    st = load_state() or {}
-    try:
-        with open(PROGRESS_PATH) as f:
-            st["live"] = json.load(f)
-    except Exception:
-        st["live"] = None
-    return json.dumps(st or {"status": "empty", "note": "no runs yet"})
+def handle_status(args=None):
+    args = args or {}
+    job_id = args.get("job_id") or (load_state() or {}).get("last_job_id")
+    if job_id:
+        return json.dumps(read_job(job_id))
+    return json.dumps(load_state() or {"status": "empty", "note": "no runs yet"})
 
 
 TOOLS = [
     {
         "name": "agy_run",
         "description": (
-            "Collaborate with Antigravity CLI (agy). Runs official agy as a child process "
-            "on the user's Gemini subscription (not API). Blocks until AG finishes and "
-            "returns status, conversation_id, and response. Use whenever the user says "
-            "collaborate with AG, use AG CLI, or delegate to Antigravity. "
-            "Do not start waiter.sh. Chat IDs are managed here automatically."
+            "FIRE-AND-FORGET Antigravity CLI. Starts a detached job (survives this chat), "
+            "opens/reuses one visible AG CLI terminal, returns job_id immediately. "
+            "Same cwd continues the last AG conversation (history). Pass new_session=true to start fresh. "
+            "Then run: python3 ~/.config/bridge/agy_cli/watch_job.py <job_id>  as a background monitor "
+            "(prints SUCCESS/ERROR/CRASH/TIMEOUT/NETWORK). Do not block this turn waiting on AG. "
+            "SUCCESS closes the preview window; failures leave it open. Do not start waiter.sh."
         ),
         "inputSchema": {
             "type": "object",
@@ -103,11 +105,15 @@ TOOLS = [
                 },
                 "continue_last": {
                     "type": "boolean",
-                    "description": "Continue the last AG CLI conversation instead of starting new.",
+                    "description": "Force continue last AG chat. Default already continues per cwd if known.",
                 },
                 "conversation_id": {
                     "type": "string",
                     "description": "Resume a specific AG CLI conversation id.",
+                },
+                "new_session": {
+                    "type": "boolean",
+                    "description": "Start a new AG conversation (forget cwd history). Default false.",
                 },
             },
             "required": ["task"],
@@ -120,8 +126,14 @@ TOOLS = [
     },
     {
         "name": "agy_status",
-        "description": "Last AG CLI run: conversation_id, status, cwd, model.",
-        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "description": "Status of an AG job (notify/result/alive). Defaults to last job.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "From agy_run. Optional."}
+            },
+            "required": [],
+        },
     },
 ]
 

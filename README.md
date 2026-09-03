@@ -6,34 +6,33 @@
 
 ## ⚡ What This Is
 
-Antigravity Bridge enables orchestrator agents (Grok, Claude Code, Cline) to treat **Antigravity CLI** as an autonomous, high-throughput sub-worker through the Model Context Protocol (MCP).
+Antigravity Bridge enables orchestrator agents (Grok, Claude Code, Cline) to treat **Antigravity CLI** as an autonomous sub-worker through the Model Context Protocol (MCP).
 
 When an agent needs to explore a massive codebase, execute refactors, run test suites, or edit dozens of files:
 1. The parent agent invokes `agy_run` with a task prompt.
-2. The MCP server spawns the official `agy` CLI as a child process in headless print mode (`agy -p`).
-3. Antigravity executes autonomously with tool access (file search, edits, shell execution).
-4. The parent receives structured JSON (`status`, `conversation_id`, `response`) upon completion.
+2. `agy_run` is **fire-and-forget**: it starts a detached job supervisor and returns immediately with a `job_id` (so Grok/Claude is never blocked or timing out during tool execution).
+3. The supervisor launches official `agy -p` in stream-json mode, opens/reuses a single visible preview terminal titled `AG-job`, and writes logs and completion status.
+4. The parent monitors completion by running `watch_job.py <job_id>` or checking `notify` / `agy_status`.
 
 ---
 
-## 🚀 What Wonders It Does
+## 🚀 Key Architectural Details
 
-- **Saves Parent Tokens & Context**: Stop stuffing 50 files into Claude or Grok context windows. Antigravity does the local exploration, analysis, and implementation, returning only the summary and results.
-- **Powered by Gemini Subscription**: Runs on your authenticated Google / Gemini subscription via `agy` (no separate OpenAI/Anthropic API bills for sub-tasks).
-- **Automated Conversation Lifecycle**: Conversation IDs are tracked in state. Follow up in the same session using `continue_last=true` or pass a specific `conversation_id`.
-- **Sensible, Safe Defaults**: Defaults to `gemini-3.7-flash-medium` for blazing speed and high throughput. Quota-heavy models (like Claude Opus) are strictly blocked to prevent accidental exhaustion.
+- **Fire-and-Forget Job Supervisor**: `agy_run` returns immediately. The detached supervisor manages `agy -p`, tees output to `job.log` and `stream.ndjson`, and writes classified results (`SUCCESS`, `ERROR`, `CRASH`, `TIMEOUT`, `NETWORK`, `CANCELED`).
+- **Single Preview Window**: Opens or reuses one visible preview window titled `AG-job` (`xfce4-terminal --disable-server`). Existing preview windows are reused instead of stacking new ones. Closing the preview window does **not** kill Antigravity. Window management carefully avoids touching Grok's own terminal panes.
+- **Per-CWD Conversation Sessions**: Maintains a mapping between repository `cwd` and Antigravity conversation IDs. Follow-up jobs in the same working directory automatically continue the existing AG conversation context unless `new_session=true` is requested.
+- **Concurrency Protection**: Returns `ALREADY_RUNNING` if a job is already in flight to avoid colliding processes.
+- **Gemini Subscription Powered**: Runs on your authenticated Google / Gemini subscription via official `agy` without per-token API billing.
+- **Sensible, Safe Model Defaults**: Defaults to `gemini-3.7-flash-medium`. Quota-heavy models (e.g. Claude Opus) are blocked to prevent quota exhaustion.
 
 ---
 
-## ⚠️ Honest Limitations
+## ⚠️ Honest Limitations & Current Status
 
-- **Not Stress-Tested**: This bridge is under active development and built for rapid local workflows. Edge-case error handling and retries are evolving.
-- **No Background Daemons in Headless Mode**: Headless `agy -p` expects tasks to complete and exit cleanly. To prevent `WaitForConversationFullyIdle` hangs, the runner streams JSON events and stops the child process immediately upon receiving the `result` event so idle-wait cannot hang the MCP.
-- **Heartbeat Monitoring**: Parent agents and callers should treat a live `/tmp/agy-job.progress` file as an active heartbeat during execution.
-- **Official CLI Required**: You must install the official Google Antigravity CLI (`agy`) and authenticate before running this MCP server.
-- **Two Distinct Modes**:
-  - **`agy-cli` (New / Default)**: Direct child-process execution per tool call (`agy_run`). No GUI or waiter loop needed.
-  - **`bridge-mcp-server` (Legacy GUI Inbox)**: Asynchronous file-spool bridge that communicates with an open Antigravity IDE window running `waiter.sh`.
+- **Still in Active Development**: Edge cases across `TIMEOUT`, `CRASH`, and `NETWORK` recovery paths, multi-job queuing, and in-session MCP hot-reloading are not yet fully proven under all scenarios.
+- **Headless CLI Execution**: Detached jobs expect tasks to complete and exit cleanly. The runner extracts `result` stream events and manages clean process shutdown.
+- **Legacy GUI Mode**: The `bridge-mcp-server` / `waiter.sh` file-spool workflow for the Antigravity IDE GUI remains available as legacy, while `agy-cli` is the modern CLI path.
+- **Official CLI Required**: Requires an authenticated local installation of Google Antigravity CLI (`agy`).
 
 ---
 
@@ -123,9 +122,9 @@ Add `agy-cli` to your `cline_mcp_settings.json` (see `templates/agy-cli.cline.js
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `agy_run` | `task` (required), `cwd`, `model`, `timeout`, `continue_last`, `conversation_id` | Spawns `agy -p`, executes the task, blocks until completion, and returns JSON result. |
+| `agy_run` | `task` (required), `cwd`, `model`, `timeout`, `continue_last`, `conversation_id`, `new_session` | Detached fire-and-forget execution. Spawns supervisor, opens preview terminal, returns `job_id` immediately. |
 | `agy_models` | *none* | Lists available model slugs on the authenticated account. |
-| `agy_status` | *none* | Returns metadata and state from the last run (`conversation_id`, `status`, `cwd`, `model`). |
+| `agy_status` | `job_id` (optional) | Returns metadata and state from the specified or last run (`finish`, `status`, `cwd`, `model`, `log`). |
 
 ### CLI Utilities
 
