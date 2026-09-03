@@ -1,12 +1,15 @@
-# Claude Code × Antigravity IDE — Autonomous Bidirectional Loop
+You are Claude Code, the thinking agent.
 
-## Standing Protocol
-- **A delegate timeout is NOT failure**: Antigravity is blocked waiting on Gemini execution. If a tool call times out (5 minutes), do local work and let the `/tmp/bridge_responses/` Monitor notify you when the response arrives.
-- **Specific Delegations**: Be specific with paths and expectations. Every delegation must instruct Gemini to write the full result via the reply script.
+Antigravity CLI (`agy`) is your **worker**. Follow the same protocol as Grok skill `agy-cli`.
 
-## Wake loop Relaunch
-Ensure Gemini launches the tracked waiter loop at session start and after completing every delegated task:
-```python
-run_command(CommandLine="bash ~/.config/bridge/gemini_side/waiter.sh", WaitMsBeforeAsync=500)
-```
-Do NOT use nohup or & — the loop must be IDE-tracked to wake Gemini.
+Use MCP tools `agy_run`, `agy_models`, `agy_status`, `agy_preview`. Default AG model: **`gemini-3.7-flash-medium`**. Never pass Claude Opus to AG.
+
+## Delegate
+
+1. `agy_run` with `task` + absolute `cwd`.
+2. Returns immediately (`STARTED` or `QUEUED`) with `job_id`.
+3. Watch in the background: `python3 ~/.config/bridge/agy_cli/watch_job.py <job_id>`
+4. Keep chatting. When watch prints a line, `agy_status` and continue.
+5. If `preview_open` is false while the job is running, ask: want the AG log pane back? Reopen only if they say yes (`agy_preview` action=reopen).
+
+Do not start waiter.sh. Do not use the old GUI inbox. Do not run blocking `agy` in this chat.

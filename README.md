@@ -66,16 +66,27 @@ agy models
 ```
 
 ### 2. Clone & Install
+
+A git clone is the source tree. It is **not** a running Grok/Claude session. To match the state we run here (worker + MCP + skill + rules):
+
 ```bash
 git clone git@github.com:atharvakalele/Bridge.git
 cd Bridge
-
-# Install package in editable mode
-pip install -e .
-
-# Run installer (sets up config and symlinks helper scripts)
 ./scripts/install.sh
 ```
+
+That script:
+
+- copies `agy_cli/` to `~/.config/bridge/agy_cli/` (the live worker)
+- installs the Grok skill to `~/.grok/skills/agy-cli/SKILL.md`
+- copies Grok rules to `~/.config/bridge/grok_side/GROK_SYSTEM_PROMPT.md`
+- writes Claude rules to `~/.claude/CLAUDE.md`
+- registers user-scoped MCP `agy-cli` for Grok and Claude if those CLIs exist
+- symlinks `agy-cli-mcp` into `~/.local/bin`
+
+Then **restart** Grok / Claude / Cline. Forks and clones that skip `install.sh` will not have the skill or MCP.
+
+Work on `dev`; `main` is the default GitHub branch.
 
 ### 3. Syncing Worker Code
 To synchronize or verify Python worker code between the repository and your live config (`~/.config/bridge/agy_cli/`):

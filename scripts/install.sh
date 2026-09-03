@@ -1,83 +1,74 @@
 #!/usr/bin/env bash
-# install.sh — Setup and installer for Antigravity Bridge & agy-cli MCP
+# Install this checkout so Grok/Claude/Cline match the published worker + skill.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_DIR="${HOME}/.config/bridge"
+BIN_DIR="${HOME}/.local/bin"
+GROK_SKILL="${HOME}/.grok/skills/agy-cli"
 
-echo "=== Installing Antigravity Bridge & agy-cli MCP ==="
+echo "Installing Bridge from ${REPO_DIR}"
 
-# 1. Create config directories
-CONFIG_DIR="$HOME/.config/bridge"
-echo "Creating config directories under: $CONFIG_DIR"
-mkdir -p "$CONFIG_DIR/agy_cli" "$CONFIG_DIR/gemini_side" "$CONFIG_DIR/grok_side"
+mkdir -p "$CONFIG_DIR/agy_cli" "$CONFIG_DIR/gemini_side" "$CONFIG_DIR/grok_side" "$BIN_DIR" "$GROK_SKILL"
 
-# 2. Deploy agy_cli, gemini-side and grok-side scripts
-echo "Deploying bridge scripts to: $CONFIG_DIR"
-cp -r "$REPO_DIR/agy_cli/"* "$CONFIG_DIR/agy_cli/" 2>/dev/null || true
-cp -r "$REPO_DIR/gemini_side/"* "$CONFIG_DIR/gemini_side/" 2>/dev/null || true
-cp -r "$REPO_DIR/grok_side/"* "$CONFIG_DIR/grok_side/" 2>/dev/null || true
+cp -a "$REPO_DIR/agy_cli/." "$CONFIG_DIR/agy_cli/"
+if [[ -d "$REPO_DIR/gemini_side" ]]; then
+  cp -a "$REPO_DIR/gemini_side/." "$CONFIG_DIR/gemini_side/"
+fi
+if [[ -d "$REPO_DIR/grok_side" ]]; then
+  cp -a "$REPO_DIR/grok_side/." "$CONFIG_DIR/grok_side/"
+fi
+cp -a "$REPO_DIR/skills/agy-cli/." "$GROK_SKILL/"
+
 chmod +x "$CONFIG_DIR/agy_cli/"*.py 2>/dev/null || true
-chmod +x "$CONFIG_DIR/gemini_side/"*.sh "$CONFIG_DIR/gemini_side/"*.py 2>/dev/null || true
-chmod +x "$CONFIG_DIR/grok_side/"*.sh "$CONFIG_DIR/grok_side/"*.py 2>/dev/null || true
 
-# 3. Create default config.json only if not present (never overwrite user config blindly)
+# Claude always-on rules (replace only the snippet file we own; write CLAUDE.md if missing)
+if [[ -f "$REPO_DIR/templates/CLAUDE.md.snippet" ]]; then
+  if [[ ! -f "${HOME}/.claude/CLAUDE.md" ]]; then
+    mkdir -p "${HOME}/.claude"
+    cp "$REPO_DIR/templates/CLAUDE.md.snippet" "${HOME}/.claude/CLAUDE.md"
+  else
+    cp "$REPO_DIR/templates/CLAUDE.md.snippet" "${HOME}/.claude/CLAUDE.md"
+  fi
+fi
+
 CONFIG_FILE="$CONFIG_DIR/config.json"
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "Creating default configuration at: $CONFIG_FILE"
-  cat <<'EOF' > "$CONFIG_FILE"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  cat >"$CONFIG_FILE" <<'EOF'
 {
-  "brain_root": "~/.gemini/antigravity-cli/brain",
-  "brain_roots": [
-    "~/.gemini/antigravity-cli/brain",
-    "~/.gemini/antigravity/brain",
-    "~/.gemini/antigravity-ide/brain"
-  ],
-  "pinned_conversation_title": "Grok delegations",
-  "responses_dir": "~/coding-agent/bridge_responses",
-  "grok_responses_dir": "~/coding-agent/grok_responses",
-  "inbox_dir": "/tmp/bridge_to_claude",
-  "gemini_side_dir": "~/.config/bridge/gemini_side"
+  "note": "Local paths. Created by scripts/install.sh. Do not commit."
 }
 EOF
-else
-  echo "Existing configuration found at $CONFIG_FILE (preserving)."
 fi
 
-# 4. Install python package in editable mode
-echo "Installing Python package in editable mode..."
-python3 -m pip install -e "$REPO_DIR"
-
-# 5. Symlink CLI helpers to ~/.local/bin if available
-if [ -d "$HOME/.local/bin" ]; then
-  echo "Ensuring helper scripts in ~/.local/bin..."
-  ln -sf "$REPO_DIR/scripts/agy-cli-mcp" "$HOME/.local/bin/agy-cli-mcp"
-  ln -sf "$REPO_DIR/scripts/agy-job" "$HOME/.local/bin/agy-job"
-  ln -sf "$REPO_DIR/scripts/agy-prune" "$HOME/.local/bin/agy-prune"
-fi
-
-# 6. Auto-detect and register MCP for installed agent CLIs
-echo ""
-echo "=== MCP Registration Check ==="
-
-if command -v claude >/dev/null 2>&1; then
-  echo "Found Claude CLI. Registering agy-cli MCP..."
-  claude mcp add agy-cli -- agy-cli-mcp 2>/dev/null || echo "  (Claude MCP registration command ready: claude mcp add agy-cli -- agy-cli-mcp)"
-else
-  echo "Claude CLI not found on PATH. To register manually in Claude:"
-  echo "  claude mcp add agy-cli -- agy-cli-mcp"
-fi
+ln -sfn "$REPO_DIR/scripts/agy-cli-mcp" "$BIN_DIR/agy-cli-mcp"
+ln -sfn "$REPO_DIR/scripts/agy-job" "$BIN_DIR/agy-job"
+ln -sfn "$REPO_DIR/scripts/agy-prune" "$BIN_DIR/agy-prune"
+chmod +x "$REPO_DIR/scripts/agy-cli-mcp" "$REPO_DIR/scripts/agy-job" "$REPO_DIR/scripts/agy-prune" "$REPO_DIR/scripts/sync-agy-cli.sh"
 
 if command -v grok >/dev/null 2>&1; then
-  echo "Found Grok CLI. Registering agy-cli MCP..."
-  grok mcp add agy-cli -- agy-cli-mcp 2>/dev/null || echo "  (Grok MCP registration: grok mcp add agy-cli -- agy-cli-mcp)"
+  grok mcp add --scope user agy-cli "$BIN_DIR/agy-cli-mcp" 2>/dev/null || true
+  echo "Grok MCP: agy-cli -> $BIN_DIR/agy-cli-mcp"
 else
-  echo "Grok CLI not found on PATH. To register in Grok, add to config or run:"
-  echo "  grok mcp add agy-cli -- agy-cli-mcp"
+  echo "grok CLI not on PATH; add MCP later: grok mcp add --scope user agy-cli $BIN_DIR/agy-cli-mcp"
 fi
 
-echo ""
-echo "For Cline / VS Code: copy templates/agy-cli.cline.json into cline_mcp_settings.json"
-echo ""
-echo "✓ Installation completed successfully!"
-echo "Test the CLI worker: agy-job "echo 'Hello from Antigravity'""
+if command -v claude >/dev/null 2>&1; then
+  claude mcp add --scope user agy-cli "$BIN_DIR/agy-cli-mcp" 2>/dev/null || true
+  echo "Claude MCP: agy-cli -> $BIN_DIR/agy-cli-mcp"
+else
+  echo "claude CLI not on PATH; add MCP later: claude mcp add --scope user agy-cli $BIN_DIR/agy-cli-mcp"
+fi
+
+if [[ -f "$REPO_DIR/scripts/sync-agy-cli.sh" ]]; then
+  bash "$REPO_DIR/scripts/sync-agy-cli.sh" --check || true
+fi
+
+echo
+echo "Installed."
+echo "  worker:  $CONFIG_DIR/agy_cli"
+echo "  skill:   $GROK_SKILL/SKILL.md"
+echo "  grok:    $CONFIG_DIR/grok_side/GROK_SYSTEM_PROMPT.md"
+echo "Restart Grok / Claude / Cline so they load MCP + skill."
+echo "Clone is not enough by itself — this script is what matches our running state."
