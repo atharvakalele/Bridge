@@ -86,7 +86,7 @@ That script:
 
 Then **restart** Grok / Claude / Cline. Forks and clones that skip `install.sh` will not have the skill or MCP.
 
-**Other chats on this machine:** start Grok via `grok-ide` (not a bare `grok` with no rules). That loads `~/.config/bridge/grok_side/GROK_SYSTEM_PROMPT.md` and the `agy-cli` skill. Claude loads `~/.claude/CLAUDE.md`. Only MCP `agy-cli` is the pipeline — do not turn on `bridge-mcp-server`. `agy-job` and `waiter.sh` are retired for new work.
+**Other Grok chats:** start with `grok-ide` (loads the rules + `agy-cli` skill). Restart Grok after install. This MCP is **Grok ↔ AG only** — not Cline, not Claude. `agy-job` and `waiter.sh` are not this pipeline.
 
 
 Work on `dev`; `main` is the default GitHub branch.

@@ -1,11 +1,11 @@
 ---
 name: agy-cli
-description: Delegate coding work to Antigravity CLI via MCP agy_run. Use whenever the user wants AG, Antigravity, agy, or a detached worker to implement, refactor, test, or push — not Grok writing the files.
+description: Delegate coding work from Grok to Antigravity CLI via MCP agy_run. Grok-AG only. Use whenever the user wants AG, Antigravity, agy, or a detached worker — not Grok writing the files. Not for Cline or Claude.
 ---
 
 # Delegate to Antigravity CLI
 
-MCP server `agy-cli` is user-scoped. Tools: `agy_run`, `agy_status`, `agy_models`, `agy_preview`.
+MCP server `agy-cli` is Grok user-scoped only. Tools: `agy_run`, `agy_status`, `agy_models`, `agy_preview`. Do not register this server on Cline or Claude.
 
 AG is a **detached worker**. Do not run `agy` or `agy-job` inside this chat (that dies when the user types). Do not start `waiter.sh`.
 
@@ -35,9 +35,9 @@ The `AG-job` window is **logs only**. Typing there does not talk to AG.
 
 ## Other chats (same state)
 
-Start Grok with `grok-ide` (loads `GROK_SYSTEM_PROMPT.md`). Restart Grok/Claude/Cline after `./scripts/install.sh`.
+Start Grok with `grok-ide` (loads `GROK_SYSTEM_PROMPT.md`). Restart Grok after `./scripts/install.sh`.
 
-Only MCP server for this pipeline: `agy-cli`. Do not enable `bridge-mcp-server`. Do not run `agy-job` or `waiter.sh`.
+This pipeline is **Grok ↔ AG only**. Only MCP server: `agy-cli`. Do not add it to Cline or Claude. Do not run `agy-job` or `waiter.sh`.
 
 Playbook on disk: `~/.grok/skills/agy-cli/SKILL.md` (this file).
 
