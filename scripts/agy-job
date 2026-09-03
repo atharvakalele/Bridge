@@ -1,49 +1,11 @@
 #!/usr/bin/env python3
-"""CLI wrapper around the same runner the MCP server uses."""
-import argparse
-import json
-import os
+"""Retired. The live pipeline is MCP agy_run (detached spawn_job)."""
 import sys
 
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if os.path.isdir(os.path.join(repo_root, "agy_cli")):
-    sys.path.insert(0, os.path.join(repo_root, "agy_cli"))
-elif os.path.isdir(os.path.expanduser("~/.config/bridge/agy_cli")):
-    sys.path.insert(0, os.path.expanduser("~/.config/bridge/agy_cli"))
-
-from runner import run_agy  # noqa: E402
-
-
-def main():
-    p = argparse.ArgumentParser(description="Run Antigravity CLI as a child process")
-    p.add_argument("task", nargs="+")
-    p.add_argument("--cwd", default=None)
-    p.add_argument("--model", default=None)
-    p.add_argument("--timeout", default="15m")
-    p.add_argument("--continue-last", action="store_true")
-    p.add_argument("--conversation", default=None)
-    args = p.parse_args()
-    result = run_agy(
-        task=" ".join(args.task),
-        cwd=args.cwd,
-        model=args.model,
-        timeout=args.timeout,
-        continue_last=args.continue_last,
-        conversation_id=args.conversation,
-    )
-    print("status:", result.get("status"))
-    print("conversation_id:", result.get("conversation_id"))
-    print("duration_seconds:", result.get("duration_seconds"))
-    if result.get("error"):
-        print("error:", result["error"])
-    print("--- response ---")
-    print(result.get("response") or "")
-    out = "/tmp/agy-job.json"
-    with open(out, "w") as f:
-        json.dump(result, f)
-        f.write("\n")
-    sys.exit(0 if result.get("status") == "SUCCESS" else 1)
-
-
-if __name__ == "__main__":
-    main()
+print(
+    "agy-job is retired.\n"
+    "Use MCP agy_run (Grok/Claude/Cline server agy-cli).\n"
+    "Playbook: ~/.grok/skills/agy-cli/SKILL.md",
+    file=sys.stderr,
+)
+sys.exit(2)

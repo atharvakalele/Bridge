@@ -65,6 +65,15 @@ if [[ -f "$REPO_DIR/scripts/sync-agy-cli.sh" ]]; then
   bash "$REPO_DIR/scripts/sync-agy-cli.sh" --check || true
 fi
 
+# AG CLI instructions (so agy -p does not start waiter.sh)
+mkdir -p "${HOME}/.gemini/antigravity-cli"
+if [[ -f "$REPO_DIR/templates/GEMINI.md" ]]; then
+  cp "$REPO_DIR/templates/GEMINI.md" "${HOME}/.gemini/GEMINI.md"
+fi
+if [[ -f "$REPO_DIR/templates/AGENTS.md" ]]; then
+  cp "$REPO_DIR/templates/AGENTS.md" "${HOME}/.gemini/antigravity-cli/AGENTS.md"
+fi
+
 echo
 echo "Installed."
 echo "  worker:  $CONFIG_DIR/agy_cli"

@@ -33,6 +33,14 @@ The `AG-job` window is **logs only**. Typing there does not talk to AG.
 - Logs stay until the user closes them. Do not close Grok's terminal (title is not `AG-job`).
 - If `agy_status` shows `preview_open: false` while the job is still running, ask: "You closed the AG log pane. Want it back?" Reopen only with `agy_preview` `action=reopen` after they say yes.
 
+## Other chats (same state)
+
+Start Grok with `grok-ide` (loads `GROK_SYSTEM_PROMPT.md`). Restart Grok/Claude/Cline after `./scripts/install.sh`.
+
+Only MCP server for this pipeline: `agy-cli`. Do not enable `bridge-mcp-server`. Do not run `agy-job` or `waiter.sh`.
+
+Playbook on disk: `~/.grok/skills/agy-cli/SKILL.md` (this file).
+
 ## Finish kinds
 
 - `SUCCESS` — AG finished the task

@@ -108,129 +108,18 @@ def start_agy_terminal(
     conversation_id=None,
     new_project=True,
 ):
-    """Open a visible xfce4-terminal running official agy. Do not wait. Never kill it."""
-    cwd = os.path.expanduser(cwd or os.path.expanduser("~"))
-    if not os.path.isdir(cwd):
-        return {"status": "ERROR", "error": f"cwd does not exist: {cwd}"}
-
-    timeout = timeout or DEFAULT_TIMEOUT
-    model = (model or "").strip()
-    if model and any(b in model.lower() for b in BLOCKED):
-        return {"status": "ERROR", "error": f"model {model} is blocked (quota)."}
-
-    if not os.path.isfile(AGY_BIN) and not shutil.which(AGY_BIN):
-        return {"status": "ERROR", "error": f"agy binary not found: {AGY_BIN}"}
-
-    # One visible AG job. A second window would fight the first.
-    try:
-        out = subprocess.check_output(["pgrep", "-ax", "agy"], text=True, stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        out = ""
-    if "/antigravity-cli/agy" in out or out.strip().endswith(" agy") or "\nagy " in out:
-        for line in out.splitlines():
-            if "antigravity-cli/agy" in line or line.strip().endswith("agy"):
-                pid = int(line.split()[0])
-                return {
-                    "status": "ALREADY_RUNNING",
-                    "pid": pid,
-                    "note": "Visible AG already up. Not starting a second. Use agy_status.",
-                }
-
-    task_file = "/tmp/agy-term-task.txt"
-    with open(task_file, "w") as f:
-        f.write(task)
-
-    state = load_state()
-    prefix = (
-        "You are Antigravity CLI in a visible terminal. "
-        "Do not start waiter.sh. Do the task and finish.\n\n"
+    """Deprecated alias. Live path is spawn_job (detached)."""
+    from spawn_job import spawn_job
+    return spawn_job(
+        task=task,
+        cwd=cwd,
+        model=model,
+        timeout=timeout,
+        continue_last=continue_last,
+        conversation_id=conversation_id,
+        new_session=bool(new_project) and not continue_last and not conversation_id,
     )
-    args = [
-        AGY_BIN,
-        "-p",
-        prefix + task,
-        "--output-format",
-        "stream-json",
-        "--print-timeout",
-        str(timeout),
-        "--dangerously-skip-permissions",
-    ]
-    if model:
-        args.extend(["--model", model])
-    if conversation_id:
-        args.extend(["--conversation", conversation_id])
-    elif continue_last and state.get("last_conversation_id"):
-        args.extend(["--conversation", state["last_conversation_id"]])
-    elif new_project:
-        args.append("--new-project")
 
-    log_path = "/tmp/agy-term.log"
-    runner = "/tmp/run-agy-term.sh"
-    # quote args safely
-    quoted = " ".join(shlex.quote(a) for a in args)
-    with open(runner, "w") as f:
-        f.write("#!/usr/bin/env bash\nset -u\n")
-        f.write(f"cd {shlex.quote(cwd)}\n")
-        f.write(f"export DISPLAY=${{DISPLAY:-:0.0}}\n")
-        f.write(f"stdbuf -oL -eL {quoted} 2>&1 | tee {shlex.quote(log_path)}\n")
-        f.write("echo AG_EXIT:$?\n")
-    os.chmod(runner, 0o755)
-
-    display = os.environ.get("DISPLAY", ":0.0")
-    env = os.environ.copy()
-    env["DISPLAY"] = display
-    if shutil.which("xfce4-terminal"):
-        subprocess.Popen(
-            [
-                "xfce4-terminal",
-                "--disable-server",
-                "--title=AG-job legacy",
-                "--geometry=110x36+200+80",
-                "-e",
-                runner,
-            ],
-            env=env,
-            start_new_session=True,
-        )
-        how = "xfce4-terminal"
-    else:
-        subprocess.Popen(
-            ["bash", runner],
-            env=env,
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        how = "nohup-bash"
-
-    started = _now()
-    write_progress(
-        {
-            "phase": "detached",
-            "cwd": cwd,
-            "model": model or "cli-default",
-            "started": started,
-            "how": how,
-            "log": log_path,
-        }
-    )
-    state.update(
-        {
-            "last_status": "DETACHED",
-            "last_cwd": cwd,
-            "last_model": model or "cli-default",
-            "updated": started,
-            "log": log_path,
-        }
-    )
-    save_state(state)
-    return {
-        "status": "STARTED",
-        "how": how,
-        "cwd": cwd,
-        "log": log_path,
-        "note": "AG is in its own terminal. Grok chat will not kill it. Poll agy_status.",
-    }
 
 
 def run_agy(
