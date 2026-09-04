@@ -12,6 +12,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -55,7 +56,30 @@ NETWORK_MARKERS = (
     "status=500",
     "status=502",
     "status=503",
+    "quota reached",
+    "individual quota",
+    "rate limit",
+    "resource exhausted",
+    "resets in",
 )
+
+# Antigravity: "Individual quota reached. ... Resets in 2m33s."
+_QUOTA_RESET_RE = re.compile(
+    r"resets in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?",
+    re.I,
+)
+
+
+def parse_quota_reset_seconds(text: str) -> float | None:
+    """Return wait seconds from an Antigravity quota error, or None."""
+    if not text:
+        return None
+    m = _QUOTA_RESET_RE.search(text)
+    if not m:
+        return None
+    h, mi, s = (int(x) if x else 0 for x in m.groups())
+    total = h * 3600 + mi * 60 + s
+    return float(total) if total > 0 else None
 
 
 def job_dir(job_id: str) -> str:
@@ -126,17 +150,25 @@ def notify(job_id: str, kind: str, extra: str = "") -> None:
         os.fsync(f.fileno())
 
 
-def classify(result: dict | None, rc: int | None, log_tail: str, timed_out: bool) -> str:
+def classify(
+    result: dict | None,
+    rc: int | None,
+    log_tail: str,
+    timed_out: bool,
+    user_canceled: bool = False,
+) -> str:
     """Classify job termination into standard finish kinds:
     SUCCESS: result status was SUCCESS.
     ERROR: Antigravity CLI returned an error status.
-    CRASH: Process died/exited with no result event.
+    CRASH: Process died/exited with no result event (e.g. unexpected SIGKILL rc=-9).
     TIMEOUT: Wall-clock deadline was exceeded and supervisor terminated the process.
     NETWORK: Connection, TLS, DNS, auth, or HTTP 429/5xx error detected.
-    CANCELED: Job was canceled or interrupted (SIGINT/SIGTERM).
+    CANCELED: Job was canceled by user/kill_job (SIGINT/SIGTERM or explicit cancel).
     """
     if timed_out:
         return "TIMEOUT"
+    if user_canceled:
+        return "CANCELED"
     err_text = ""
     if result and isinstance(result, dict):
         err_text = str(result.get("error") or "")
@@ -156,7 +188,7 @@ def classify(result: dict | None, rc: int | None, log_tail: str, timed_out: bool
         return "ERROR"
     if rc is None:
         return "TIMEOUT"
-    if rc < 0 or rc in (130, 143):
+    if rc in (130, 143) and user_canceled:
         return "CANCELED"
     if rc != 0:
         return "CRASH"
@@ -168,10 +200,14 @@ def build_agy_args(task, model, timeout, conversation_id, continue_last, new_pro
     if any(b in model.lower() for b in BLOCKED):
         raise ValueError(f"blocked model: {model}")
     prefix = (
-        "You are Antigravity CLI in a detached visible job. "
-        "Do not start waiter.sh or long-running daemons. "
-        "Do the task and finish.\n\n"
+        "You are Antigravity CLI in a detached visible job. Do the assigned task and exit.\n"
+        "Never start waiter.sh, grok_waiter.sh, or any long-running poll daemon.\n"
+        "Long llama/harness scripts (run_qwen36.sh, run_qwen38.sh, run_server_ring.sh, gate.sh, build) ARE ALLOWED and expected to take time.\n"
+        "When running ring/harness/llama commands via run_command, set WaitMsBeforeAsync or manage them with timeout >= 15m.\n"
+        "NEVER run 'pkill -f llama' or 'pkill llama-cli' without -x on the desktop machine (it matches the agy process argv and kills this agent).\n\n"
     )
+    timeout_sec = int(parse_timeout(timeout or DEFAULT_TIMEOUT))
+    duration_str = f"{timeout_sec}s"
     args = [
         AGY_BIN,
         "-p",
@@ -179,7 +215,7 @@ def build_agy_args(task, model, timeout, conversation_id, continue_last, new_pro
         "--output-format",
         "stream-json",
         "--print-timeout",
-        str(timeout or DEFAULT_TIMEOUT),
+        duration_str,
         "--dangerously-skip-permissions",
         "--model",
         model,
@@ -360,7 +396,36 @@ def run_job(job_id: str) -> int:
     finally:
         rc = proc.poll()
         tail = "".join(log_tail_chunks)[-4000:]
-        kind = classify(result, rc, tail, timed_out)
+        user_canceled = False
+        notify_path = os.path.join(d, "notify")
+        if os.path.isfile(notify_path):
+            try:
+                with open(notify_path) as nf:
+                    user_canceled = any(l.strip().startswith("CANCELED") for l in nf)
+            except Exception:
+                pass
+        kind = classify(result, rc, tail, timed_out, user_canceled=user_canceled)
+        err_now = ""
+        if result and isinstance(result, dict):
+            err_now = str(result.get("error") or "")
+        wait_s = parse_quota_reset_seconds(err_now)
+        quota_hit = kind == "NETWORK" and wait_s is not None and "quota" in err_now.lower()
+        if quota_hit and not meta.get("quota_retried") and wait_s <= 600:
+            meta["quota_retried"] = True
+            write_json(meta_path, meta)
+            wait_s = wait_s + 8
+            banner(f"QUOTA retry in {int(wait_s)}s: {err_now[:180]}")
+            logf.flush()
+            try:
+                logf.close()
+            except Exception:
+                pass
+            try:
+                rawf.close()
+            except Exception:
+                pass
+            time.sleep(wait_s)
+            return run_job(job_id)
         payload = result or {}
         payload.update(
             {
@@ -404,7 +469,12 @@ def run_job(job_id: str) -> int:
         if payload.get("response"):
             sys.stdout.write((payload["response"] or "")[:4000] + "\n")
             sys.stdout.flush()
-        notify(job_id, kind, job_id)
+        if not user_canceled or kind != "CANCELED":
+            extra = job_id
+            err_bit = str(payload.get("error") or "")[:180].replace("\n", " ")
+            if err_bit:
+                extra = f"{job_id} {err_bit}"
+            notify(job_id, kind, extra)
         logf.close()
         rawf.close()
         meta["phase"] = "done"

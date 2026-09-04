@@ -12,7 +12,7 @@ AG does **not** message Grok chats. Closing a Grok chat does not kill AG and doe
 4. Keep talking. On SUCCESS/ERROR/CRASH/TIMEOUT/NETWORK/CANCELED, `agy_status` and continue.
 5. Same `cwd` continues AG history unless `new_session=true`.
 6. `QUEUED` means wait; the supervisor starts it next. Do not start a second AG.
-7. The `AG-job` pane is logs only. Closing it does not kill AG. If `preview_open` is false while running, ask before `agy_preview` reopen.
+7. **Always show the log pane** when AG is running (`agy_run` opens it). If you run a long worker yourself, open the same `AG-job` pane on that log. Do not wait for the user to ask. If they close it mid-job, then ask before reopen.
 8. User says stop/kill/cancel AG → `agy_kill`. Do not pkill Grok.
 
 ## Do not

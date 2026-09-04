@@ -22,11 +22,15 @@ def main():
                 f.seek(pos)
                 chunk = f.read()
                 pos = f.tell()
-            for line in chunk.splitlines():
+            last = None
+            for line in open(path).read().splitlines():
                 kind = (line.split() or [""])[0].upper()
                 if kind in KINDS:
-                    print(f"{kind} {job_id}", flush=True)
-                    return 0 if kind == "SUCCESS" else 1
+                    last = kind
+            res = os.path.join(JOBS, job_id, "result.json")
+            if last and os.path.isfile(res):
+                print(f"{last} {job_id}", flush=True)
+                return 0 if last == "SUCCESS" else 1
         time.sleep(0.4)
     print(f"TIMEOUT {job_id}", flush=True)
     return 1

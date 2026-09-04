@@ -35,7 +35,7 @@ FINISH_EXPLANATIONS = {
     "ERROR": "Antigravity reported an error during task execution.",
     "CRASH": "The agy process died or exited without emitting a final result event.",
     "TIMEOUT": "Execution hit the wall-clock timeout limit and was stopped by the supervisor.",
-    "NETWORK": "Network, authentication, rate limit (429), or server error (5xx) occurred.",
+    "NETWORK": "Network, authentication, quota, rate limit (429), or server error (5xx) occurred.",
     "CANCELED": "Job was canceled or interrupted before completion.",
 }
 
@@ -145,10 +145,14 @@ def run_agy(
 
     state = load_state()
     prefix = (
-        "You are Antigravity CLI invoked by a parent coding agent. "
-        "Do not start waiter.sh or any long-running daemon. "
-        "Do the task and finish so this process can exit.\n\n"
+        "You are Antigravity CLI invoked by a parent coding agent. Do the assigned task and exit.\n"
+        "Never start waiter.sh, grok_waiter.sh, or any long-running daemon.\n"
+        "Long llama/harness scripts (run_qwen36.sh, run_qwen38.sh, run_server_ring.sh, gate.sh, build) ARE ALLOWED and expected to take time.\n"
+        "When running ring/harness/llama commands via run_command, set WaitMsBeforeAsync or manage them with timeout >= 15m.\n"
+        "NEVER run 'pkill -f llama' or 'pkill llama-cli' without -x on the desktop machine (it matches the agy process argv and kills this agent).\n\n"
     )
+    timeout_sec = int(parse_timeout(timeout or DEFAULT_TIMEOUT))
+    duration_str = f"{timeout_sec}s"
     args = [
         AGY_BIN,
         "-p",
@@ -156,7 +160,7 @@ def run_agy(
         "--output-format",
         "stream-json",
         "--print-timeout",
-        str(timeout),
+        duration_str,
         "--dangerously-skip-permissions",
         "--model",
         model,
